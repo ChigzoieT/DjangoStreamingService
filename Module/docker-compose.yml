@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  django_server:
+    build: .
+    working_dir: /usr/src/app
+    command: >
+      sh -c "python manage.py wait_for_db &&
+            python manage.py wait_for_elk &&
+            python manage.py migrate &&
+            apt install -y curl &&
+            echo 'sending curl to 0 hosts' &&
+            curl -X GET ${ELK_CONNECTION_PROTOCOL}://${ELK_HOST}:${ELK_PORT} &&
+            python manage.py generate_test_data 1000 &&
+            gunicorn src.wsgi:application --bind 0.0.0.0:8000"
+    ports:
+      - 8000:8000
+    env_file: .env
+    depends_on:
+      - elasticsearch7
+      - postgresql_db
+    container_name: django_server
+
+  elasticsearch7:
+    image: elasticsearch:7.17.5
+    ports:
+      - ${ELK_PORT}:${ELK_PORT}
+      - 9300:9300
+    container_name: ${ELK_HOST}
+    restart: always
+    # command: >
+    #   sh -c "echo 'printing config for elastic search' &&
+    #         cat /usr/share/elasticsearch/config/elasticsearch.yml"
+    # volumes:
+    #   - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    environment:
+      - discovery.type=single-node
+      - node.name=django_flix
+      # - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+
+  postgresql_db:
+    image: postgres
+    ports:
+      - 5432:5432
+    restart: always
+    env_file: .env
+    container_name: ${POSTGRES_HOST}
+
